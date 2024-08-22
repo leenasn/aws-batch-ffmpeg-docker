@@ -41,9 +41,8 @@ def process_video(s3_metadata_file_key)
   end
   puts "Processing with JSON params #{params}"  
   input_video = params["video_url"]
-  s3_output_path = params["s3_output_dir"]
-  errors = ""
-  input_file_name = "input#{File.extname(input_video)}"
+  s3_output_path = params["s3_output_dir"].to_s
+  # input_file_name = "input#{File.extname(input_video)}"
   # Download the input video from S3
   # s3_client.get_object(response_target: "input.mp4", bucket: s3_bucket, key: input_video)
   # unless File.exist?(input_file_name)
@@ -82,7 +81,7 @@ def process_video(s3_metadata_file_key)
       end
 
       # Upload the output video to S3      
-      s3_file = "#{s3_output_path.blank? ? "" : "#{s3_output_path}/"}#{output_file}"
+      s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
       s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
       obj = s3.bucket(s3_bucket).object(s3_file)
       File.open("#{@output_dir}/#{output_file}", "rb") do | file |
@@ -95,7 +94,6 @@ def process_video(s3_metadata_file_key)
       output_json[metadata["attribute_name"]] = s3_output_url
       notify_webhook(video_id, output_json)
     rescue => e
-      errors += "Processing failed for #{metadata["url_attribute"]}: #{e.message}"
       puts "error #{e.message}"
       puts e.backtrace.join("\n")
       notify_webhook(video_id, {}, "Processing failed for #{metadata["url_attribute"]}: #{e.message}")
@@ -104,7 +102,7 @@ def process_video(s3_metadata_file_key)
 end
 
 # Entry point
-@output_dir = "clips"
+@output_dir = "clips-#{Time.now.to_i}"
 begin
   Dir.mkdir(@output_dir) unless Dir.exist?(@output_dir)
   process_video(ARGV[0])

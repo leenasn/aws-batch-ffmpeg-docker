@@ -26,9 +26,8 @@ end
 
 # Main function to process the video
 def execute_ffmpeg(video_id, params, output_file)
-  s3_client = Aws::S3::Client.new(region: ENV["AWS_REGION"])
   s3_bucket = ENV["S3_BUCKET"]
-  s3_output_path = ENV["S3_OUTPUT_DIR"]
+  s3_output_path = ENV["S3_OUTPUT_DIR"].to_s
   puts "params #{params} video_id #{video_id} output_file #{output_file}"
   begin
     ffmpeg_command = "ffmpeg -y #{params} \"#{@output_dir}/#{output_file}\""
@@ -43,7 +42,7 @@ def execute_ffmpeg(video_id, params, output_file)
     end
 
     # Upload the output video to S3      
-    s3_file = "#{s3_output_path.blank? ? "" : "#{s3_output_path}/"}#{output_file}"
+    s3_file = "#{s3_output_path.empty ? "" : "#{s3_output_path}/"}#{output_file}"
     s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
     obj = s3.bucket(s3_bucket).object(s3_file)
     File.open("#{@output_dir}/#{output_file}", "rb") do | file |
@@ -63,7 +62,7 @@ def execute_ffmpeg(video_id, params, output_file)
 end
 
 # Entry point
-@output_dir = "outputs"
+@output_dir = "outputs-#{Time.now.to_i}"
 begin  
   Dir.mkdir(@output_dir) unless Dir.exist?(@output_dir)
   execute_ffmpeg(ARGV[0], ARGV[1], ARGV[2])

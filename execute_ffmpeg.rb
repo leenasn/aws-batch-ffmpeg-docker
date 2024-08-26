@@ -42,7 +42,7 @@ def execute_ffmpeg(video_id, params, output_file)
     end
 
     # Upload the output video to S3      
-    s3_file = "#{s3_output_path.empty ? "" : "#{s3_output_path}/"}#{output_file}"
+    s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
     s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
     obj = s3.bucket(s3_bucket).object(s3_file)
     File.open("#{@output_dir}/#{output_file}", "rb") do | file |

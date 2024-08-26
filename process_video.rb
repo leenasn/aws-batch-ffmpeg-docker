@@ -60,19 +60,23 @@ def process_video(s3_metadata_file_key)
     start_time = metadata["start_time"].to_s.gsub(",", ".").gsub('"', "")
     duration = metadata["duration"]
     output_file = metadata["output_file_name"]
-    srt_file = metadata["srt_file"].to_s # Optional
+    srt_file_url = metadata["subtitles_file_url"].to_s # Optional
 
     begin
       # Download the SRT file if provided
-      unless srt_file.empty?
-        s3_client.get_object(response_target: "subtitles.srt", bucket: s3_bucket, key: srt_file)
-        ffmpeg_command = "ffmpeg -y -ss #{start_time} -t #{duration} -i \"#{input_video}\" -vf \"subtitles=subtitles.srt\" -c:a copy \"#{@output_dir}/#{output_file}\""
-      else
-        ffmpeg_command = "ffmpeg -y -ss #{start_time} -t #{duration} -i \"#{input_video}\" -c:a copy \"#{@output_dir}/#{output_file}\""
+      unless srt_file_url.empty?
+        srt_file_name = "#{@output_dir}/#{video_id}-subtitles.srt"
+        uri = URI.parse(srt_file_url)
+        s3_client.get_object(response_target: srt_file_name, bucket: uri.host.split('.').first, key: uri.path[1..-1])
+        output_file_with_subtitles = "#{@output_dir}/with-subtitles-#{output_file}"
+        ffmpeg_command = "ffmpeg -y -i \"#{input_video}\" -vf \"subtitles=#{srt_file_name}\" -c:a copy \"#{output_file_with_subtitles}\""
+        puts "calling ffmpeg with subtitles #{ffmpeg_command}"
+        status = system(ffmpeg_command)
+        input_video = output_file_with_subtitles
       end
-
+      ffmpeg_command = "ffmpeg -y -ss #{start_time} -t #{duration} -i \"#{input_video}\" -c:a copy \"#{@output_dir}/#{output_file}\""
       # Run FFmpeg command
-      puts "calling ffmpeg #{ffmpeg_command}"
+      puts "calling ffmpeg to crop video #{ffmpeg_command}"
       status = system(ffmpeg_command)
       unless status
         puts "ffmpeg failed with error"
@@ -111,7 +115,7 @@ rescue => e
 ensure
   begin
     Dir.glob("#{@output_dir}/*").each do |file|
-      # File.delete(file)
+      File.delete(file)
     end
   rescue => e
     puts "Error while deleting files #{e.message}"

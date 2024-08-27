@@ -9,5 +9,3 @@ docker tag ffmpeg-batch:latest 243837092821.dkr.ecr.us-east-1.amazonaws.com/ffmp
 
 # Push the image to ECR
 docker push 243837092821.dkr.ecr.us-east-1.amazonaws.com/ffmpeg-batch:latest
- 
-Create a new job definition in AWS Console and change the queue definition in the code

@@ -16,6 +16,7 @@ def notify_webhook(job_id, post_params, error = "")
   request = Net::HTTP::Post.new(uri.request_uri, header)
   post_params["id"] = job_id
   post_params["error"] = error
+  post_params["aws_batch_job_id"] = ENV["AWS_BATCH_JOB_ID"]
   request.body = post_params.to_json
 
   response = http.request(request)

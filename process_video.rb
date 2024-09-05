@@ -75,7 +75,7 @@ def process_video(s3_metadata_file_key)
         status = system(ffmpeg_command)
         input_video = output_file_with_subtitles
       end
-      ffmpeg_command = "ffmpeg -y -ss #{start_time} -t #{duration} -i \"#{input_video}\" -map 0:v -map 0:a -c:v libx264 -c:a copy -pix_fmt yuv420p \"#{@output_dir}/#{output_file}\""
+      ffmpeg_command = "ffmpeg -y -i \"#{input_video}\" -ss #{start_time} -t #{duration} -c:v libx264 -pix_fmt yuv420p -c:a copy \"#{@output_dir}/#{output_file}\""
       # Run FFmpeg command
       puts "calling ffmpeg to crop video #{ffmpeg_command}"
       status = system(ffmpeg_command)

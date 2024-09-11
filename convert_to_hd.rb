@@ -26,16 +26,55 @@ rescue => e
   puts "Failed to notify webhook #{webhook_url} with error: #{e.message}"
 end
 
+def download_file_from_s3(url)
+  s3 = Aws::S3::Client.new(region: ENV["AWS_REGION"])
+  local_path = "#{@output_dir}/#{File.basename(url)}"
+  uri = URI.parse(url)
+  bucket = uri.host.split('.').first
+  # Extract the object key
+  key = URI.decode_www_form_component(uri.path[1..-1])
+  # Get the object size to plan multipart download
+  obj = s3.head_object(bucket: bucket, key: key)
+  obj_size = obj.content_length
+
+  # Define chunk size (e.g., 10 MB)
+  chunk_size = 100 * 1024 * 1024
+  num_chunks = (obj_size.to_f / chunk_size).ceil
+  puts "Download started at #{Time.now} with #{num_chunks} chunks"
+  File.open(local_path, 'wb') do |file|
+    num_chunks.times do |i|
+      range_start = i * chunk_size
+      range_end = [(i + 1) * chunk_size - 1, obj_size - 1].min
+
+      s3.get_object(bucket: bucket, key: key, range: "bytes=#{range_start}-#{range_end}") do |chunk|
+        file.write(chunk)
+      end
+      puts "Downloaded chunk #{i + 1}/#{num_chunks} (#{((i + 1) * chunk_size / 1024.0 / 1024.0).round(2)} MB)"
+    end
+  end
+
+  puts "Download completed successfully @ #{Time.now}!"
+  return local_path
+rescue Aws::S3::Errors::ServiceError => e
+  puts "Failed to download file: #{e.message}"
+  notify_webhook(video_id, {}, "Download failed for #{url}: #{e.message}")
+  return ""
+end
+
 # Main function to process the video
 def convert_to_hd(video_id, video_url, output_file)
   s3_bucket = ENV["S3_BUCKET"]
   s3_output_path = ENV["S3_OUTPUT_DIR"].to_s
+  local_path = download_file_from_s3(video_url)
+  if local_path.empty?
+    return
+  end
   begin
-    width, height, portrait, aspect_ratio = get_video_info(video_id, video_url)
+    width, height, portrait, aspect_ratio = get_video_info(video_id, local_path)
     puts "Video info: width: #{width}, height: #{height}, portrait: #{portrait}, aspect_ratio: #{aspect_ratio}"
     if (width > 1920 && height > 1080) || portrait
       # ffmpeg_command = "ffmpeg -y -i '#{video_url}' -vf 'scale=#{portrait ? "720:1280" : "1080:1920"},format=yuv420p' -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
-      ffmpeg_command = "ffmpeg -y -i '#{video_url}' -vf 'scale=#{portrait ? "720:1280" : "1080:1920"},format=yuv420p' -c:v libx264 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
+      ffmpeg_command = "ffmpeg -y -i '#{local_path}' -vf 'scale=#{portrait ? "720:1280" : "1080:1920"},format=yuv420p' -c:v libx264 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
       # Run FFmpeg command
       puts "calling ffmpeg #{ffmpeg_command}"
       status = system(ffmpeg_command)
@@ -117,9 +156,6 @@ rescue => e
   puts "Fatal error: #{e.message}"
 ensure
   begin
-    # Dir.glob("#{@output_dir}/*").each do |file|
-    #   File.delete(file)
-    # end
     FileUtils.rm_rf(@output_dir) if Dir.exist?(@output_dir)
   rescue => e
     puts "Error while deleting files #{e.message}"

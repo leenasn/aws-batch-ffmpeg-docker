@@ -3,6 +3,7 @@ require "json"
 require "net/http"
 require "open-uri"
 require "open3"
+require "fileutils"
 
 # Function to send a notification to the webhook
 def notify_webhook(job_id, post_params, error = "")
@@ -43,18 +44,6 @@ def process_video(s3_metadata_file_key)
   puts "Processing with JSON params #{params}"  
   input_video = params["video_url"]
   s3_output_path = params["s3_output_dir"].to_s
-  # input_file_name = "input#{File.extname(input_video)}"
-  # Download the input video from S3
-  # s3_client.get_object(response_target: "input.mp4", bucket: s3_bucket, key: input_video)
-  # unless File.exist?(input_file_name)
-  #   begin
-  #     IO.copy_stream(URI.open(input_video), input_file_name)
-  #   rescue => e
-  #     notify_webhook("", {}, "Failed to download video file: #{e.message}")
-  #     puts e.backtrace.join("\n")
-  #     return
-  #   end
-  # end
   params["clip_metadata"].each do | metadata |
     puts "metadata #{metadata}"
     video_id = metadata["video_id"]
@@ -118,6 +107,7 @@ ensure
     Dir.glob("#{@output_dir}/*").each do |file|
       File.delete(file)
     end
+    FileUtils.rm_rf(@output_dir) if Dir.exist?(@output_dir)
   rescue => e
     puts "Error while deleting files #{e.message}"
   end

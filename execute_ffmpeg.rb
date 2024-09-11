@@ -3,6 +3,7 @@ require "json"
 require "net/http"
 require "open-uri"
 require "open3"
+require "fileutils"
 
 # Function to send a notification to the webhook
 def notify_webhook(job_id, post_params, error = "")
@@ -74,6 +75,7 @@ ensure
     Dir.glob("#{@output_dir}/*").each do |file|
       File.delete(file)
     end
+    FileUtils.rm_rf(@output_dir) if Dir.exist?(@output_dir)
   rescue => e
     puts "Error while deleting files #{e.message}"
   end

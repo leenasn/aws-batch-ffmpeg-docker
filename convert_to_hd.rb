@@ -26,7 +26,7 @@ rescue => e
   puts "Failed to notify webhook #{webhook_url} with error: #{e.message}"
 end
 
-def download_file_from_s3(url)
+def download_file_from_s3(video_id, url)
   s3 = Aws::S3::Client.new(region: ENV["AWS_REGION"])
   local_path = "#{@output_dir}/#{File.basename(url)}"
   uri = URI.parse(url)
@@ -65,12 +65,12 @@ end
 def convert_to_hd(video_id, video_url, output_file)
   s3_bucket = ENV["S3_BUCKET"]
   s3_output_path = ENV["S3_OUTPUT_DIR"].to_s
-  local_path = download_file_from_s3(video_url)
+  local_path = download_file_from_s3(video_id, video_url)
   if local_path.empty?
     return
   end
   begin
-    width, height, portrait, aspect_ratio = get_video_info(video_id, local_path)
+    width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, local_path)
     puts "Video info: width: #{width}, height: #{height}, portrait: #{portrait}, aspect_ratio: #{aspect_ratio}"
     if (width > 1920 && height > 1080) || portrait
       # ffmpeg_command = "ffmpeg -y -i '#{video_url}' -vf 'scale=#{portrait ? "720:1280" : "1080:1920"},format=yuv420p' -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
@@ -83,7 +83,7 @@ def convert_to_hd(video_id, video_url, output_file)
         notify_webhook(video_id, {}, "FFmpeg command \"#{ffmpeg_command}\" failed")
         return
       end
-      width, height, portrait, aspect_ratio = get_video_info(video_id, "#{@output_dir}/#{output_file}")
+      width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, "#{@output_dir}/#{output_file}")
       # Upload the output video to S3      
       s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
       s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
@@ -96,13 +96,14 @@ def convert_to_hd(video_id, video_url, output_file)
     else
       s3_output_url = video_url
     end
-    # Notify via webhook with the success response
+    Notify via webhook with the success response
     output_json = {
       width: width,
       height: height,
       aspect_ratio: aspect_ratio,
       output_file_url: s3_output_url,
-      portrait: portrait
+      portrait: portrait,
+      duration_in_minutes: duration_in_minutes
     }
     notify_webhook(video_id, output_json)
   rescue => e
@@ -120,6 +121,7 @@ def get_video_info(video_id, video_url)
   width = 1080
   height = 720
   aspect_ratio = "16:9"
+  duration_in_minutes = nil
   if $?.success?
     puts "ffprobe output: #{output}"
     width, height, rotation = output.strip.split(',').select { | elem | !elem.empty?} .collect(&:to_i)
@@ -131,13 +133,20 @@ def get_video_info(video_id, video_url)
       aspect_ratio = "#{aspect_width}:#{aspect_height}"
       portrait = true if aspect_ratio.to_s.eql?("9:16") || rotation.to_i < 0
     end
+    ffprobe_command = "ffprobe -v error -select_streams v:0 -show_entries format=duration -of csv=p=0 #{video_url}"
+    puts "calling ffprobe #{ffprobe_command}"
+    output = `#{ffprobe_command}`
+    if $?.success?
+      duration_in_minutes = output.strip.to_f / 60
+      puts "Video duration is #{duration_in_minutes} minutes"
+    end
   else
     puts "ffprobe failed with with output #{output}, so setting portrait to true to convert to 720p"
     notify_webhook(video_id, {}, "FFprobe command \"#{ffprobe_command}\" failed")
     portrait = true
   end
   puts "width: #{width}, height: #{height}, portrait: #{portrait}, aspect_ratio: #{aspect_ratio}"
-  [width, height, portrait, aspect_ratio]
+  [width, height, portrait, aspect_ratio, duration_in_minutes]
 end
 
 def gcd(a, b)

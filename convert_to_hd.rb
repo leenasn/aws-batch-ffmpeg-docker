@@ -96,7 +96,7 @@ def convert_to_hd(video_id, video_url, output_file)
     else
       s3_output_url = video_url
     end
-    Notify via webhook with the success response
+    # Notify via webhook with the success response
     output_json = {
       width: width,
       height: height,
@@ -160,7 +160,20 @@ end
 @output_dir = "outputs-#{Time.now.to_i}"
 begin  
   Dir.mkdir(@output_dir) unless Dir.exist?(@output_dir)
-  convert_to_hd(ARGV[0], ARGV[1], ARGV[2])
+  if ARGV[2].nil?
+    video_id = ARGV[0]
+    width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, ARGV[1])
+    output_json = {
+      width: width,
+      height: height,
+      aspect_ratio: aspect_ratio,
+      portrait: portrait,
+      duration_in_minutes: duration_in_minutes
+    }
+    notify_webhook(video_id, output_json)
+  else
+    convert_to_hd(ARGV[0], ARGV[1], ARGV[2])
+  end
 rescue => e
   puts "Fatal error: #{e.message}"
 ensure

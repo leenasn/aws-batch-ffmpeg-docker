@@ -66,11 +66,14 @@ def convert_to_hd(video_id, video_url, output_file)
   s3_bucket = ENV["S3_BUCKET"]
   s3_output_path = ENV["S3_OUTPUT_DIR"].to_s
   local_path = download_file_from_s3(video_id, video_url)
+  # local_path = video_url
   if local_path.empty?
+    notify_webhook(video_id, {}, "Invalid input file for ffmpeg #{local_path}")
     return
   end
   begin
     width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, local_path)
+    initial_duration_in_minutes = duration_in_minutes
     puts "Video info: width: #{width}, height: #{height}, portrait: #{portrait}, aspect_ratio: #{aspect_ratio}"
     if (width > 1920 && height > 1080) || portrait
       # ffmpeg_command = "ffmpeg -y -i '#{video_url}' -vf 'scale=#{portrait ? "720:1280" : "1080:1920"},format=yuv420p' -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
@@ -84,15 +87,20 @@ def convert_to_hd(video_id, video_url, output_file)
         return
       end
       width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, "#{@output_dir}/#{output_file}")
-      # Upload the output video to S3      
-      s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
-      s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
-      obj = s3.bucket(s3_bucket).object(s3_file)
-      File.open("#{@output_dir}/#{output_file}", "rb") do | file |
-        obj.put(body: file, acl: "public-read", content_type: "video/mp4")
+      if initial_duration_in_minutes == duration_in_minutes
+        # Upload the output video to S3
+        s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
+        s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
+        obj = s3.bucket(s3_bucket).object(s3_file)
+        File.open("#{@output_dir}/#{output_file}", "rb") do | file |
+          obj.put(body: file, acl: "public-read", content_type: "video/mp4")
+        end
+        s3_output_url = obj.public_url
+        puts "Uploaded to S3 #{s3_output_url}"
+      else
+        notify_webhook(video_id, {}, "Duration mismatch after conversion: #{initial_duration_in_minutes} vs #{duration_in_minutes}")
+        return
       end
-      s3_output_url = obj.public_url
-      puts "Uploaded to S3 #{s3_output_url}"
     else
       s3_output_url = video_url
     end

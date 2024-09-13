@@ -86,7 +86,7 @@ def convert_to_hd(video_id, video_url, output_file)
         return
       end
       width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, "#{@output_dir}/#{output_file}")
-      if original_duration_in_minutes == duration_in_minutes
+      if original_duration_in_minutes.to_i == duration_in_minutes.to_i
         # Upload the output video to S3
         s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
         s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])

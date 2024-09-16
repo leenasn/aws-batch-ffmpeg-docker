@@ -1,3 +1,5 @@
+#!/bin/sh
+
 # Build the Docker image
 docker build -t ffmpeg-batch:latest .
 

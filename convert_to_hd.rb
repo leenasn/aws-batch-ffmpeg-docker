@@ -65,55 +65,47 @@ end
 def convert_to_hd(video_id, video_url, output_file)
   s3_bucket = ENV["S3_BUCKET"]
   s3_output_path = ENV["S3_OUTPUT_DIR"].to_s
-  local_path = download_file_from_s3(video_id, video_url)
-  # local_path = video_url
+  # local_path = download_file_from_s3(video_id, video_url)
+  local_path = video_url
   if local_path.empty?
     return
   end
   begin
-    width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, local_path)
-    puts "Video info: width: #{width}, height: #{height}, portrait: #{portrait}, aspect_ratio: #{aspect_ratio}"
-    original_duration_in_minutes = duration_in_minutes
-    width = 1920 if width > 1920
-    height = 1080 if height > 1080
-    # if (width > 1920 && height > 1080) || portrait
-      # ffmpeg_command = "ffmpeg -y -i '#{video_url}' -vf 'scale=#{portrait ? "720:1280" : "1080:1920"},format=yuv420p' -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
-      ffmpeg_command = "ffmpeg -y -i '#{local_path}' -vf 'scale=#{portrait ? "720:1280" : "#{height}:#{width}"},format=yuv420p' -c:v libx264 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
-      # Run FFmpeg command
-      puts "calling ffmpeg #{ffmpeg_command}"
-      status = system(ffmpeg_command)
-      unless status
-        # puts "ffmpeg failed with error #{stderr}"
-        notify_webhook(video_id, {}, "FFmpeg command \"#{ffmpeg_command}\" failed")
-        return
-      end
-      width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, "#{@output_dir}/#{output_file}")
-      if original_duration_in_minutes.to_i == duration_in_minutes.to_i
-        # Upload the output video to S3
-        s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
-        s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
-        obj = s3.bucket(s3_bucket).object(s3_file)
-        File.open("#{@output_dir}/#{output_file}", "rb") do | file |
-          obj.put(body: file, acl: "public-read", content_type: "video/mp4")
-        end
-        s3_output_url = obj.public_url
-        puts "Uploaded to S3 #{s3_output_url}"
-      else
-        notify_webhook(video_id, {}, "Duration mismatch after conversion: #{original_duration_in_minutes} vs #{duration_in_minutes}")
-        return
-      end
-    # else
-    #   s3_output_url = video_url
+    video_info = get_video_info(video_id, local_path)
+    puts "Video info: #{video_info}"
+    original_duration_in_minutes = video_info[:duration_in_minutes]
+    rotation = video_info[:rotation]
+    # transpose_param = ""
+    # if rotation == 180 || rotation == -180
+    #   transpose_param = "transpose=2,transpose=2,"
     # end
+    ffmpeg_command = "ffmpeg -y -i '#{local_path}' -vf 'format=yuv420p' -c:v libx264 -c:a aac -b:a 128k -movflags +faststart -threads 0 \"#{@output_dir}/#{output_file}\""
+    # Run FFmpeg command
+    puts "calling ffmpeg #{ffmpeg_command}"
+    status = system(ffmpeg_command)
+    unless status
+      # puts "ffmpeg failed with error #{stderr}"
+      notify_webhook(video_id, {}, "FFmpeg command \"#{ffmpeg_command}\" failed")
+      return
+    end
+    video_info = get_video_info(video_id, "#{@output_dir}/#{output_file}")
+    duration_in_minutes = video_info[:duration_in_minutes]
+    if original_duration_in_minutes.to_i == duration_in_minutes.to_i
+      # Upload the output video to S3
+      s3_file = "#{s3_output_path.empty? ? "" : "#{s3_output_path}/"}#{output_file}"
+      s3 = Aws::S3::Resource.new(region: ENV["AWS_REGION"])
+      obj = s3.bucket(s3_bucket).object(s3_file)
+      File.open("#{@output_dir}/#{output_file}", "rb") do | file |
+        obj.put(body: file, acl: "public-read", content_type: "video/mp4")
+      end
+      s3_output_url = obj.public_url
+      puts "Uploaded to S3 #{s3_output_url}"
+    else
+      notify_webhook(video_id, {}, "Duration mismatch after conversion: #{original_duration_in_minutes} vs #{duration_in_minutes}")
+      return
+    end
     # Notify via webhook with the success response
-    output_json = {
-      width: width,
-      height: height,
-      aspect_ratio: aspect_ratio,
-      output_file_url: s3_output_url,
-      portrait: portrait,
-      duration_in_minutes: duration_in_minutes
-    }
+    output_json[:output_file_url] = s3_output_url
     notify_webhook(video_id, output_json)
   rescue => e
     puts "error #{e.message}"
@@ -155,7 +147,15 @@ def get_video_info(video_id, video_url)
     portrait = true
   end
   puts "width: #{width}, height: #{height}, portrait: #{portrait}, aspect_ratio: #{aspect_ratio}"
-  [width, height, portrait, aspect_ratio, duration_in_minutes]
+  # [width, height, portrait, aspect_ratio, duration_in_minutes]
+  {
+    width: width,
+    height: height,
+    portrait: portrait,
+    aspect_ratio: aspect_ratio,
+    rotation: rotation,
+    duration_in_minutes: duration_in_minutes
+  }
 end
 
 def gcd(a, b)
@@ -171,14 +171,7 @@ begin
   Dir.mkdir(@output_dir) unless Dir.exist?(@output_dir)
   if ARGV[2].nil?
     video_id = ARGV[0]
-    width, height, portrait, aspect_ratio, duration_in_minutes = get_video_info(video_id, ARGV[1])
-    output_json = {
-      width: width,
-      height: height,
-      aspect_ratio: aspect_ratio,
-      portrait: portrait,
-      duration_in_minutes: duration_in_minutes
-    }
+    output_json = get_video_info(video_id, ARGV[1])
     notify_webhook(video_id, output_json)
   else
     convert_to_hd(ARGV[0], ARGV[1], ARGV[2])
